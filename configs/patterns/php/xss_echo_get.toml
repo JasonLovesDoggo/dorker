@@ -1,0 +1,14 @@
+id = "PHP-XSS-001"
+name = "PHP Echo with GET Parameter"
+type = "XSS"
+language = "PHP"
+regex = "\\becho\\b.*\\$_GET\\b"
+description = "PHP code that directly echoes GET parameters without sanitization"
+severity = "high"
+cwe = "CWE-79"
+false_positive_patterns = [
+    "htmlspecialchars\\(\\$_GET",
+    "htmlentities\\(\\$_GET",
+    "strip_tags\\(\\$_GET"
+]
+example_url = "https://github.com/msaad1999/PHP-Login-System/blob/master/includes/profile-card.inc.php"

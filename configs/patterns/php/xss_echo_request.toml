@@ -1,0 +1,12 @@
+id = "PHP-XSS-002"
+name = "PHP Echo with REQUEST Parameter"
+type = "XSS"
+language = "PHP"
+regex = "echo\\s+\\$_REQUEST"
+description = "PHP code that directly echoes REQUEST parameters without sanitization"
+severity = "high"
+cwe = "CWE-79"
+false_positive_patterns = [
+    "htmlspecialchars\\(\\$_REQUEST",
+    "htmlentities\\(\\$_REQUEST"
+]

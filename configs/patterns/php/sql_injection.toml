@@ -1,0 +1,13 @@
+id = "PHP-SQLI-001"
+name = "PHP SQL Query with User Input"
+type = "SQL_INJECTION"
+language = "PHP"
+regex = "(SELECT|INSERT|UPDATE|DELETE)\\s(.*\\$_POST|.*\\$_GET|.*\\$_REQUEST)"
+description = "PHP code that includes user input directly in SQL queries"
+severity = "critical"
+cwe = "CWE-89"
+false_positive_patterns = [
+    "prepare\\(",
+    "mysqli_real_escape_string",
+    "PDO::quote"
+]

@@ -1,0 +1,8 @@
+id = "PHP-DESERIAL-001"
+name = "PHP Insecure Deserialization"
+type = "INSECURE_DESERIALIZATION"
+language = "PHP"
+regex = "(unserialize\\()(.*\\$_POST|.*\\$_GET|.*\\$_REQUEST)"
+description = "PHP code that deserializes user input without validation"
+severity = "critical"
+cwe = "CWE-502"
