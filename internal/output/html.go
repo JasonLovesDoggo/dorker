@@ -2,12 +2,13 @@ package output
 
 import (
 	"fmt"
-	"github.com/
+	"github.com/jasonlovesdoggo/dorker/internal/models"
+	"github.com/pkg/browser"
 	"html"
 	"os"
 	"strings"
 	"time"
-	"github.com/pkg/browser"
+)
 
 // HTMLFormatter formats findings for HTML output
 type HTMLFormatter struct{}
