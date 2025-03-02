@@ -4,14 +4,12 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"github.com/jasonlovesdoggo/dorker/internal/models"
 	"strings"
 	"time"
 
 	"github.com/google/go-github/v48/github"
-	"github.com/jasonlovesdoggo/dorker/internal/config"
-	"github.com/jasonlovesdoggo/dorker/internal/models"
-	"github.com/jasonlovesdoggo/dorker/internal/patterns"
-	"github.com/jasonlovesdoggo/dorker/pkg/github"
+	ptrns "github.com/jasonlovesdoggo/dorker/internal/patterns"
 	"github.com/jasonlovesdoggo/dorker/pkg/utils"
 	"golang.org/x/oauth2"
 )
@@ -20,16 +18,30 @@ import (
 type GitHubScanner struct {
 	*BaseScanner
 	client *github.Client
-	config *config.Config
+	config struct {
+		Token       string
+		APIEndpoint string
+		Timeout     int
+		RateLimit   int
+	}
 }
 
 // NewGitHubScanner creates a new GitHub scanner
 func NewGitHubScanner(cfg struct {
-	Token       string `yaml:"token"`
-	APIEndpoint string `yaml:"api_endpoint"`
-	Timeout     int    `yaml:"timeout_seconds"`
-	RateLimit   int    `yaml:"rate_limit_per_hour"`
+	Token       string
+	APIEndpoint string
+	Timeout     int
+	RateLimit   int
 }, logger *utils.Logger) (*GitHubScanner, error) {
+	if logger == nil {
+		return nil, fmt.Errorf("logger cannot be nil")
+	}
+
+	// Ensure we have a token
+	if cfg.Token == "" {
+		return nil, fmt.Errorf("GitHub token is required")
+	}
+
 	ctx := context.Background()
 	ts := oauth2.StaticTokenSource(
 		&oauth2.Token{AccessToken: cfg.Token},
@@ -40,11 +52,22 @@ func NewGitHubScanner(cfg struct {
 	return &GitHubScanner{
 		BaseScanner: NewBaseScanner(logger),
 		client:      client,
+		config:      cfg,
 	}, nil
 }
 
 // Scan scans a GitHub repository for vulnerabilities
-func (s *GitHubScanner) Scan(target string, patterns []patterns.Pattern) ([]models.Finding, error) {
+func (s *GitHubScanner) Scan(target string, patterns []ptrns.Pattern) ([]models.Finding, error) {
+	// Check for nil client
+	if s.client == nil {
+		return nil, fmt.Errorf("GitHub client is not initialized")
+	}
+
+	// Check for empty target
+	if target == "" {
+		return nil, fmt.Errorf("target repository cannot be empty")
+	}
+
 	var findings []models.Finding
 
 	// Parse owner and repo from target
@@ -56,8 +79,14 @@ func (s *GitHubScanner) Scan(target string, patterns []patterns.Pattern) ([]mode
 
 	s.logger.Info(fmt.Sprintf("Scanning GitHub repository: %s/%s", owner, repo))
 
+	// Set default timeout if not provided
+	timeout := 60
+	if s.config.Timeout > 0 {
+		timeout = s.config.Timeout
+	}
+
 	// Get repository info
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.GitHub.Timeout)*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
 	defer cancel()
 
 	repoInfo, _, err := s.client.Repositories.Get(ctx, owner, repo)
@@ -71,7 +100,7 @@ func (s *GitHubScanner) Scan(target string, patterns []patterns.Pattern) ([]mode
 	// Build search queries for each pattern
 	for _, pattern := range patterns {
 		// Only search with patterns applicable to the repository's primary language
-		if pattern.Language != patterns.Any && !s.isLanguageMatch(string(pattern.Language), repoInfo.GetLanguage()) {
+		if pattern.Language != ptrns.Any && !s.isLanguageMatch(string(pattern.Language), repoInfo.GetLanguage()) {
 			continue
 		}
 
@@ -91,39 +120,56 @@ func (s *GitHubScanner) Scan(target string, patterns []patterns.Pattern) ([]mode
 		})
 
 		if err != nil {
-			s.logger.Error(fmt.Sprintf("Search failed for pattern %s: %v", pattern.ID, err))
+			s.logger.Error(fmt.Sprintf("Search failed for pattern %s: %v", pattern.ID, err), err)
 			// Continue with next pattern on error
 			continue
 		}
 
 		// Process results
-		for _, item := range result.CodeResults {
-			// Get file content
-			fileContent, _, _, err := s.client.Repositories.GetContents(ctx, owner, repo, item.GetPath(), &github.RepositoryContentGetOptions{})
-			if err != nil {
-				s.logger.Error(fmt.Sprintf("Failed to get contents for %s: %v", item.GetPath(), err))
-				continue
-			}
-
-			content, err := base64.StdEncoding.DecodeString(fileContent.GetContent())
-			if err != nil {
-				s.logger.Error(fmt.Sprintf("Failed to decode content for %s: %v", item.GetPath(), err))
-				continue
-			}
-
-			// Check if the file content actually matches the pattern
-			if s.MatchPattern(item.GetPath(), string(content), pattern) {
-				finding := models.Finding{
-					Pattern:        pattern,
-					Repository:     repoInfo.GetFullName(),
-					FilePath:       item.GetPath(),
-					LineNumber:     s.findLineNumber(string(content), pattern.Regex),
-					MatchedContent: s.extractMatchedContext(string(content), pattern.Regex),
-					URL:            item.GetHTMLURL(),
-					FoundAt:        time.Now(),
+		if result != nil && result.CodeResults != nil {
+			for _, item := range result.CodeResults {
+				if item == nil {
+					continue
 				}
-				findings = append(findings, finding)
-				s.logger.Info(fmt.Sprintf("Found potential vulnerability: %s in %s", pattern.Name, item.GetPath()))
+
+				// Get file content
+				fileContent, _, _, err := s.client.Repositories.GetContents(ctx, owner, repo, item.GetPath(), &github.RepositoryContentGetOptions{})
+				if err != nil {
+					s.logger.Error(fmt.Sprintf("Failed to get contents for %s: %v", item.GetPath(), err), err)
+					continue
+				}
+
+				// Skip if fileContent is nil
+				if fileContent == nil {
+					continue
+				}
+
+				rawContent, err := fileContent.GetContent()
+				if err != nil {
+					s.logger.Error(fmt.Sprintf("Failed to get raw content for %s: %v", item.GetPath(), err), err)
+					continue
+				}
+
+				content, err := base64.StdEncoding.DecodeString(rawContent)
+				if err != nil {
+					s.logger.Error(fmt.Sprintf("Failed to decode content for %s: %v", item.GetPath(), err), err)
+					continue
+				}
+
+				// Check if the file content actually matches the pattern
+				if s.MatchPattern(item.GetPath(), string(content), pattern) {
+					finding := models.Finding{
+						Pattern:        pattern,
+						Repository:     repoInfo.GetFullName(),
+						FilePath:       item.GetPath(),
+						LineNumber:     s.findLineNumber(string(content), pattern.Regex),
+						MatchedContent: s.extractMatchedContext(string(content), pattern.Regex),
+						URL:            item.GetHTMLURL(),
+						FoundAt:        time.Now(),
+					}
+					findings = append(findings, finding)
+					s.logger.Info(fmt.Sprintf("Found potential vulnerability: %s in %s", pattern.Name, item.GetPath()))
+				}
 			}
 		}
 
@@ -142,6 +188,12 @@ func (s *GitHubScanner) isLanguageMatch(patternLanguage, repoLanguage string) bo
 
 	// Handle language aliases and variations
 	patternLang := strings.ToLower(patternLanguage)
+
+	// Check for nil repo language
+	if repoLanguage == "" {
+		return patternLang == "any"
+	}
+
 	repoLang := strings.ToLower(repoLanguage)
 
 	switch patternLang {

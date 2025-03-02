@@ -1,9 +1,10 @@
 package main
 
 import (
-	"errors"
 	"flag"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/jasonlovesdoggo/dorker/internal/analyzer"
@@ -32,6 +33,22 @@ func main() {
 		logger.Fatal("Failed to load configuration:", err)
 	}
 
+	// Validate target
+	if *target == "" {
+		logger.Fatal("No target specified. Use --target flag to specify a target.", nil)
+	}
+
+	// Validate target format based on mode
+	if *scanMode == "github" {
+		if !strings.Contains(*target, "/") || len(strings.Split(*target, "/")) != 2 {
+			logger.Fatal("Invalid GitHub repository format. Expected format: owner/repo", nil)
+		}
+	} else if *scanMode == "local" {
+		if _, err := os.Stat(*target); os.IsNotExist(err) {
+			logger.Fatal("Target directory does not exist", err)
+		}
+	}
+
 	// Load vulnerability patterns
 	vulnPatterns, err := config.LoadPatterns(cfg)
 	if err != nil {
@@ -43,17 +60,21 @@ func main() {
 	var scannerInstance scanner.Scanner
 	switch *scanMode {
 	case "github":
+		// Validate GitHub token
+		if cfg.GitHub.Token == "" {
+			logger.Fatal("GitHub token is required for GitHub scanning mode. Add it to your config.toml file.", nil)
+		}
 		scannerInstance, err = scanner.NewGitHubScanner(struct {
-			Token       string `yaml:"token"`
-			APIEndpoint string `yaml:"api_endpoint"`
-			Timeout     int    `yaml:"timeout_seconds"`
-			RateLimit   int    `yaml:"rate_limit_per_hour"`
+			Token       string
+			APIEndpoint string
+			Timeout     int
+			RateLimit   int
 		}(cfg.GitHub), logger)
 	case "local":
-		logger.Fatal("Local scanner not implemented yet", errors.New("not implemented"))
+		panic("local scanning mode not implemented yet")
 		//scannerInstance, err = scanner.NewLocalScanner(logger)
 	default:
-		logger.Fatal("Unknown scan mode:", errors.New(*scanMode))
+		logger.Fatal("Unknown scan mode:", fmt.Errorf("mode %s not supported", *scanMode))
 		return
 	}
 
