@@ -1,6 +1,6 @@
 # Dorker - Automated Vulnerability Finding Tool
 
-I'll update the code to reflect your project rename to "dorker" and fix the missing packages. Here's an updated README and the corrected structure for the missing components.
+# UNMAINTAINED 
 
 ```markdown name=README.md
 # Dorker
